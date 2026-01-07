@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Polymarket (Strict Yes/No Mapping)</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/themes/airbnb.css">
+    <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+    <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
+    
+    <style>
+        /* --- 1. 全局設定 --- */
+        :root {
+            --bg-body: #F8FAFC; --bg-card: #FFFFFF;
+            --primary: #2563EB; --primary-hover: #1D4ED8;
+            --text-main: #1E293B; --text-sub: #64748B;
+            --border: #E2E8F0;
+            --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            --radius: 12px;
+            --up-color: #10B981; --down-color: #EF4444; --btc-color: #F59E0B;
+        }
+
+        * { box-sizing: border-box; }
+        
+        body { 
+            background-color: var(--bg-body); color: var(--text-main); font-family: 'Inter', sans-serif; 
+            margin: 0; height: 100vh; display: flex; flex-direction: column; overflow: hidden; 
+        }
+
+        /* --- 2. 頂部控制列 --- */
+        #control-panel { 
+            background-color: var(--bg-card); border-bottom: 1px solid var(--border); padding: 10px 24px; 
+            display: flex; align-items: center; justify-content: center; gap: 20px; 
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05); flex-shrink: 0; z-index: 10; height: 60px;
+        }
+
+        .control-group { display: flex; flex-direction: column; gap: 2px; }
+        .label-text { font-size: 10px; color: var(--text-sub); font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; }
+
+        input.picker-input { 
+            background-color: #F1F5F9; border: 1px solid transparent; padding: 6px 10px; border-radius: 6px; 
+            font-size: 13px; font-weight: 600; color: var(--text-main); width: 110px; text-align: center; 
+        }
+        input.picker-input:focus { background-color: #FFF; border-color: var(--primary); outline: none; }
+
+        input#timestampPreview { 
+            background: #EFF6FF; border: 1px solid #DBEAFE; color: var(--primary); 
+            font-family: 'JetBrains Mono', monospace; font-size: 12px; width: 130px; cursor: default; 
+        }
+
+        button#loadBtn { 
+            background: var(--primary); color: white; border: none; padding: 0 20px; border-radius: 6px; 
+            cursor: pointer; font-weight: 600; font-size: 13px; height: 34px; display: flex; align-items: center; gap: 8px; 
+        }
+        button#loadBtn:hover { background: var(--primary-hover); transform: translateY(-1px); }
+        button#loadBtn:disabled { background: #94A3B8; cursor: not-allowed; transform: none; }
+
+        #status-pill {
+            display: inline-flex; align-items: center; padding: 4px 12px; border-radius: 20px;
+            font-size: 11px; font-weight: 600; opacity: 0; transition: opacity 0.3s; background: #F1F5F9; color: var(--text-sub);
+        }
+        #status-pill.visible { opacity: 1; }
+        #status-pill.loading { color: #D97706; background: #FFFBEB; }
+        #status-pill.success { color: #059669; background: #ECFDF5; }
+        #status-pill.error   { color: #DC2626; background: #FEF2F2; }
+
+        /* --- 3. 圖表區域 --- */
+        #main-area { 
+            flex-grow: 1; padding: 12px; display: flex; flex-direction: column; gap: 8px; 
+            overflow-y: auto; max-width: 1600px; width: 100%; margin: 0 auto; 
+        }
+
+        .chart-card { 
+            flex: 1; min-height: 180px; background: var(--bg-card); border-radius: var(--radius); 
+            border: 1px solid var(--border); box-shadow: var(--shadow); display: flex; flex-direction: column; 
+            overflow: hidden; position: relative; 
+        }
+
+        .card-header {
+            padding: 4px 12px; border-bottom: 1px solid #F1F5F9; display: flex; 
+            justify-content: space-between; align-items: center; background: rgba(255,255,255,0.95); z-index: 20; height: 32px;
+        }
+
+        .token-badge { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 700; }
+        .dot { width: 8px; height: 8px; border-radius: 50%; }
+        .dot.a { background-color: var(--up-color); }
+        .dot.b { background-color: var(--down-color); }
+        .dot.btc { background-color: var(--btc-color); }
+
+        .token-id { 
+            font-family: 'JetBrains Mono', monospace; color: var(--text-sub); font-size: 10px; 
+            background: #F8FAFC; padding: 2px 6px; border-radius: 4px; 
+            max-width: 200px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        }
+
+        /* --- 4. OHLC Legend --- */
+        .ohlc-legend {
+            position: absolute;
+            top: 36px; left: 12px; z-index: 10;
+            font-family: 'JetBrains Mono', monospace; font-size: 11px;
+            display: flex; gap: 12px; pointer-events: none;
+            background: rgba(255, 255, 255, 0.85); padding: 2px 8px; border-radius: 6px;
+            backdrop-filter: blur(2px); border: 1px solid rgba(226, 232, 240, 0.5);
+        }
+        
+        .legend-item { display: flex; gap: 4px; align-items: center; }
+        .legend-label { color: #64748B; font-weight: 500; }
+        .legend-value { font-weight: 600; color: #1E293B; }
+        .legend-time { color: var(--primary); font-weight: 700; border-right: 1px solid #E2E8F0; padding-right: 12px; margin-right: 4px; }
+        
+        .val-up { color: var(--up-color) !important; }
+        .val-down { color: var(--down-color) !important; }
+
+        .chart-render-area { flex: 1; width: 100%; position: relative; }
+    </style>
+</head>
+<body>
+
+<div id="control-panel">
+    <div class="control-group">
+        <span class="label-text">Date (TW)</span>
+        <input type="text" id="datePicker" class="picker-input" placeholder="YYYY-MM-DD">
+    </div>
+    <div class="control-group">
+        <span class="label-text">Time (TW)</span>
+        <input type="text" id="timePicker" class="picker-input" placeholder="HH:00">
+    </div>
+    <div style="color:var(--border); font-size:16px; margin-top:10px;">➔</div>
+    <div class="control-group">
+        <span class="label-text">Timestamp (UTC)</span>
+        <input type="text" id="timestampPreview" placeholder="Calculated TS" readonly>
+    </div>
+    <div class="control-group" style="flex-direction: row; align-items: flex-end; padding-left: 10px; gap: 12px;">
+        <button id="loadBtn" onclick="loadMarketData()">
+            <span>Fetch Data</span>
+        </button>
+        <div id="status-pill">Ready</div>
+    </div>
+</div>
+
+<div id="main-area">
+    <div class="chart-card" id="wrapper-a">
+        <div class="card-header">
+            <div class="token-badge"><span class="dot a"></span> TOKEN A (YES/Long)</div>
+            <span id="id-a" class="token-id">Waiting...</span>
+        </div>
+        <div id="legend-a" class="ohlc-legend"></div>
+        <div id="chart-a-container" class="chart-render-area"></div>
+    </div>
+
+    <div class="chart-card" id="wrapper-b">
+        <div class="card-header">
+            <div class="token-badge"><span class="dot b"></span> TOKEN B (NO/Short)</div>
+            <span id="id-b" class="token-id">Waiting...</span>
+        </div>
+        <div id="legend-b" class="ohlc-legend"></div>
+        <div id="chart-b-container" class="chart-render-area"></div>
+    </div>
+
+    <div class="chart-card" id="wrapper-btc">
+        <div class="card-header">
+            <div class="token-badge"><span class="dot btc"></span> Bitcoin (BTC)</div>
+            <span class="token-id">Reference Price</span>
+        </div>
+        <div id="legend-btc" class="ohlc-legend"></div>
+        <div id="chart-btc-container" class="chart-render-area"></div>
+    </div>
+</div>
+
+<script>
+    // --- 1. Timestamp 與時區邏輯 ---
+    const tsInput = document.getElementById('timestampPreview');
+    const dateInput = document.getElementById('datePicker');
+    const timeInput = document.getElementById('timePicker');
+
+    flatpickr("#datePicker", { dateFormat: "Y-m-d", defaultDate: "2025-07-23", onChange: calculateTimestamp, disableMobile: "true", animate: true });
+    flatpickr("#timePicker", { enableTime: true, noCalendar: true, dateFormat: "H:00", time_24hr: true, defaultDate: "06:00", minuteIncrement: 60, onChange: calculateTimestamp, disableMobile: "true" });
+
+    function calculateTimestamp() {
+        const dateStr = dateInput.value;
+        const timeStr = timeInput.value;
+        if(!dateStr || !timeStr) return;
+        const isoString = `${dateStr}T${timeStr}:00+08:00`;
+        const targetDate = new Date(isoString);
+        tsInput.value = targetDate.getTime() / 1000;
+    }
+
+    // --- 2. Chart 初始化 ---
+    let chartA, seriesA, volA;
+    let chartB, seriesB, volB;
+    let chartBTC, seriesBTC, volBTC;
+
+    let processedDataA = [], processedDataB = [], processedDataBTC = [];
+    const chartList = [];
+
+    const THEME = { 
+        bg: '#FFFFFF', text: '#333333', grid: '#F1F5F9', 
+        up: '#10B981', down: '#EF4444', btcUp: '#F59E0B', btcDown: '#9CA3AF', border: '#E2E8F0' 
+    };
+
+    const formatToTaiwanTime = (timestamp) => {
+        const date = new Date(timestamp * 1000);
+        return date.toLocaleTimeString('zh-TW', { 
+            hour: '2-digit', minute: '2-digit', hour12: false, 
+            timeZone: 'Asia/Taipei' 
+        });
+    };
+
+    const baseOptions = {
+        layout: { background: { type: 'solid', color: THEME.bg }, textColor: THEME.text, fontSize: 11, fontFamily: "'Inter', sans-serif" },
+        grid: { vertLines: { color: THEME.grid }, horzLines: { color: THEME.grid } },
+        rightPriceScale: { 
+            borderColor: THEME.border, alignLabels: true,
+            minimumWidth: 75, maximumWidth: 75 // 強制寬度一致
+        },
+        timeScale: { 
+            borderColor: THEME.border, timeVisible: true, secondsVisible: false,
+            tickMarkFormatter: formatToTaiwanTime 
+        },
+        localization: {
+            timeFormatter: formatToTaiwanTime,
+            priceFormatter: p => p.toFixed(3)
+        },
+        crosshair: { mode: LightweightCharts.CrosshairMode.Normal, vertLine: { labelVisible: false } },
+    };
+
+    function initCharts() {
+        chartA = LightweightCharts.createChart(document.getElementById('chart-a-container'), baseOptions);
+        seriesA = chartA.addCandlestickSeries({ upColor: THEME.up, downColor: THEME.down, borderVisible: false, wickUpColor: THEME.up, wickDownColor: THEME.down });
+        volA = chartA.addHistogramSeries({ priceFormat: { type: 'volume' }, priceScaleId: '' });
+        volA.priceScale().applyOptions({ scaleMargins: { top: 0.85, bottom: 0 } });
+
+        chartB = LightweightCharts.createChart(document.getElementById('chart-b-container'), baseOptions);
+        seriesB = chartB.addCandlestickSeries({ upColor: THEME.up, downColor: THEME.down, borderVisible: false, wickUpColor: THEME.up, wickDownColor: THEME.down });
+        volB = chartB.addHistogramSeries({ priceFormat: { type: 'volume' }, priceScaleId: '' });
+        volB.priceScale().applyOptions({ scaleMargins: { top: 0.85, bottom: 0 } });
+
+        const btcOptions = { ...baseOptions, localization: { ...baseOptions.localization, priceFormatter: p => p.toFixed(2) } };
+        chartBTC = LightweightCharts.createChart(document.getElementById('chart-btc-container'), btcOptions);
+        seriesBTC = chartBTC.addCandlestickSeries({ upColor: THEME.btcUp, downColor: THEME.btcDown, borderVisible: false, wickUpColor: THEME.btcUp, wickDownColor: THEME.btcDown });
+        volBTC = chartBTC.addHistogramSeries({ priceFormat: { type: 'volume' }, priceScaleId: '' });
+        volBTC.priceScale().applyOptions({ scaleMargins: { top: 0.85, bottom: 0 } });
+
+        chartList.push({ chart: chartA, series: seriesA, vol: volA, id: 'a', legend: 'legend-a', decimals: 3 });
+        chartList.push({ chart: chartB, series: seriesB, vol: volB, id: 'b', legend: 'legend-b', decimals: 3 });
+        chartList.push({ chart: chartBTC, series: seriesBTC, vol: volBTC, id: 'btc', legend: 'legend-btc', decimals: 2 });
+
+        const resizeObserver = new ResizeObserver(entries => {
+            for (let entry of entries) {
+                const { width, height } = entry.contentRect;
+                const id = entry.target.parentElement.id;
+                const chartH = height - 32; 
+                if (id === 'wrapper-a') chartA.applyOptions({ width, height: chartH });
+                if (id === 'wrapper-b') chartB.applyOptions({ width, height: chartH });
+                if (id === 'wrapper-btc') chartBTC.applyOptions({ width, height: chartH });
+            }
+        });
+        ['wrapper-a', 'wrapper-b', 'wrapper-btc'].forEach(id => resizeObserver.observe(document.getElementById(id)));
+
+        setupSyncAndLegends();
+    }
+
+    // --- 3. 全域同步 ---
+    function setupSyncAndLegends() {
+        chartList.forEach((source, index) => {
+            source.chart.timeScale().subscribeVisibleLogicalRangeChange(range => {
+                if (range) {
+                    chartList.forEach((target, i) => {
+                        if (index !== i) target.chart.timeScale().setVisibleLogicalRange(range);
+                    });
+                }
+            });
+
+            source.chart.subscribeCrosshairMove(param => {
+                const time = param.time;
+                if (time) {
+                    chartList.forEach(target => {
+                        if (target !== source) target.chart.setCrosshairPosition(0, time, target.series);
+                    });
+                    updateAllLegends(time);
+                } else {
+                    chartList.forEach(target => {
+                        if (target !== source) target.chart.clearCrosshairPosition();
+                    });
+                    resetAllLegendsToLast();
+                }
+            });
+        });
+    }
+
+    function updateAllLegends(time) {
+        const find = (arr, t) => arr.find(d => d.time === t);
+        renderLegend('legend-a', find(processedDataA, time), 3, time);
+        renderLegend('legend-b', find(processedDataB, time), 3, time);
+        renderLegend('legend-btc', find(processedDataBTC, time), 2, time);
+    }
+
+    function resetAllLegendsToLast() {
+        const findLastValid = (arr) => {
+            for(let i=arr.length-1; i>=0; i--) {
+                if(arr[i].open !== undefined) return arr[i];
+            }
+            return null;
+        };
+        const lastA = findLastValid(processedDataA);
+        const lastB = findLastValid(processedDataB);
+        const lastBTC = findLastValid(processedDataBTC);
+        if(lastA) renderLegend('legend-a', lastA, 3, lastA.time);
+        if(lastB) renderLegend('legend-b', lastB, 3, lastB.time);
+        if(lastBTC) renderLegend('legend-btc', lastBTC, 2, lastBTC.time);
+    }
+
+    function renderLegend(domId, data, decimals, time) {
+        const div = document.getElementById(domId);
+        if (!data || data.open === undefined) {
+            const timeStr = time ? formatToTaiwanTime(time) : '--:--';
+            div.innerHTML = `<span class="legend-time">${timeStr}</span><span style="color:#999; font-size:11px;">No Trade</span>`;
+            return;
+        }
+
+        const open = data.open; const close = data.close;
+        const colorClass = close >= open ? 'val-up' : 'val-down';
+        const timeStr = formatToTaiwanTime(data.time);
+
+        div.innerHTML = `
+            <span class="legend-time">${timeStr}</span>
+            <div class="legend-item"><span class="legend-label">O</span><span class="legend-value ${colorClass}">${formatNum(open, decimals)}</span></div>
+            <div class="legend-item"><span class="legend-label">H</span><span class="legend-value ${colorClass}">${formatNum(data.high, decimals)}</span></div>
+            <div class="legend-item"><span class="legend-label">L</span><span class="legend-value ${colorClass}">${formatNum(data.low, decimals)}</span></div>
+            <div class="legend-item"><span class="legend-label">C</span><span class="legend-value ${colorClass}">${formatNum(close, decimals)}</span></div>
+            <div class="legend-item"><span class="legend-label">Vol</span><span class="legend-value" style="color:#64748B">${formatVol(data.volume)}</span></div>
+        `;
+    }
+
+    function formatNum(val, dec) { return (val || 0).toFixed(dec); }
+    function formatVol(val) {
+        if(val >= 1000000) return (val/1000000).toFixed(2) + 'M';
+        if(val >= 1000) return (val/1000).toFixed(1) + 'K';
+        return val;
+    }
+
+    // --- 4. 資料載入與 [數據對齊 + 精確 Yes/No 映射] ---
+    async function loadMarketData() {
+        const ts = tsInput.value;
+        const btn = document.getElementById('loadBtn');
+        const status = document.getElementById('status-pill');
+
+        if(!ts) return;
+        
+        btn.disabled = true; btn.innerHTML = `<span class="loading-spinner"></span> Loading...`;
+        status.textContent = "Querying..."; status.className = "loading visible";
+
+        try {
+            const targetUrl = `https://polymarket-backend-136618650108.asia-east1.run.app/query?timestamp=${ts}`;
+            const proxyUrl = `https://corsproxy.io/?` + encodeURIComponent(targetUrl);
+            const res = await fetch(proxyUrl);
+            if(!res.ok) throw new Error(`API Error: ${res.status}`);
+            const json = await res.json();
+
+            // 檢查 polymarket_data
+            if (!json.polymarket_data || json.polymarket_data.length === 0) {
+                status.textContent = "Empty Data"; status.className = "error visible";
+            } else {
+                status.textContent = "Success"; status.className = "success visible";
+            }
+
+            processAndRender(json);
+
+        } catch(e) {
+            console.error(e);
+            status.textContent = "Error"; status.className = "error visible";
+        } finally {
+            btn.disabled = false; btn.innerHTML = `<span>Fetch Data</span>`;
+        }
+    }
+
+    function processAndRender(json) {
+        // [Format Helper]
+        const formatK = (d, isBtc) => ({
+            time: Number(d.timestamp),
+            open: Number(d.open), high: Number(d.high), low: Number(d.low), close: Number(d.close),
+            volume: Number(d.volume),
+            color: Number(d.close) >= Number(d.open) ? (isBtc?THEME.btcUp:THEME.up) : (isBtc?THEME.btcDown:THEME.down)
+        });
+
+        // 1. 原始資料分組
+        const grouped = {};
+        (json.polymarket_data || []).forEach(item => {
+            if (!grouped[item.asset_id]) grouped[item.asset_id] = [];
+            grouped[item.asset_id].push(formatK(item, false));
+        });
+
+        // 2. [關鍵修改] 根據 tokens 欄位取得正確的 Yes/No ID
+        const tokenYes = json.tokens?.yes;
+        const tokenNo = json.tokens?.no;
+
+        // 如果 token ID 存在，就去 grouped 拿對應的 Array，否則為空陣列
+        const rawA = (tokenYes && grouped[tokenYes]) ? grouped[tokenYes] : [];
+        const rawB = (tokenNo && grouped[tokenNo]) ? grouped[tokenNo] : [];
+        const rawBTC = (json.btc_data || []).map(d => formatK(d, true));
+
+        // 更新 ID 顯示
+        document.getElementById('id-a').textContent = tokenYes ? `ID: ${tokenYes}` : 'No Token Info';
+        document.getElementById('id-b').textContent = tokenNo ? `ID: ${tokenNo}` : 'No Token Info';
+        document.getElementById('id-a').title = tokenYes; // hover 顯示完整 ID
+        document.getElementById('id-b').title = tokenNo;
+
+        // 3. 數據對齊補白 (No Data Alignment)
+        const allTimestamps = new Set();
+        rawA.forEach(d => allTimestamps.add(d.time));
+        rawB.forEach(d => allTimestamps.add(d.time));
+        rawBTC.forEach(d => allTimestamps.add(d.time));
+        
+        const sortedTimes = Array.from(allTimestamps).sort((a,b) => a - b);
+
+        const fillGaps = (dataArray) => {
+            const dataMap = new Map(dataArray.map(d => [d.time, d]));
+            return sortedTimes.map(t => {
+                const existing = dataMap.get(t);
+                if(existing) return existing;
+                return { time: t }; // Whitespace
+            });
+        };
+
+        processedDataA = fillGaps(rawA);
+        processedDataB = fillGaps(rawB);
+        processedDataBTC = fillGaps(rawBTC);
+
+        // 4. 設定給圖表
+        seriesA.setData(processedDataA);
+        volA.setData(processedDataA.map(d => ({ time: d.time, value: d.volume || 0, color: 'rgba(16, 185, 129, 0.2)' })));
+        
+        seriesB.setData(processedDataB);
+        volB.setData(processedDataB.map(d => ({ time: d.time, value: d.volume || 0, color: 'rgba(16, 185, 129, 0.2)' })));
+
+        seriesBTC.setData(processedDataBTC);
+        volBTC.setData(processedDataBTC.map(d => ({ time: d.time, value: d.volume || 0, color: 'rgba(245, 158, 11, 0.2)' })));
+
+        resetAllLegendsToLast();
+        if(processedDataBTC.length) chartBTC.timeScale().fitContent();
+    }
+
+    window.addEventListener('DOMContentLoaded', () => {
+        initCharts();
+        calculateTimestamp();
+    });
+</script>
+
+</body>
+</html>
